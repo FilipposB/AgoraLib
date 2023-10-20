@@ -11,13 +11,17 @@ import org.reflections.Reflections;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.BeansException;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.config.BeanFactoryPostProcessor;
 import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.context.ApplicationEventPublisherAware;
 import org.springframework.context.annotation.Import;
-import org.springframework.stereotype.Component;
 
 import filippos.bagordakis.agora.agora.Agora;
+import filippos.bagordakis.agora.agora.data.dto.AgoraEvent;
+import filippos.bagordakis.agora.agora.data.dto.GreetingDTO;
 import filippos.bagordakis.agora.stoa.annotation.Dose;
 import filippos.bagordakis.agora.stoa.annotation.Pare;
 import filippos.bagordakis.agora.stoa.annotation.Stoa;
@@ -27,14 +31,13 @@ import filippos.bagordakis.agora.stoa.settings.StoaMethodSettings.Builder;
 import filippos.bagordakis.agora.stoa.settings.StoaSettings;
 import jakarta.annotation.PostConstruct;
 
-@Component
 @Import({ Agora.class})
-public class AgoraConfig implements BeanFactoryPostProcessor, BeanPostProcessor {
+public class AgoraConfig implements BeanFactoryPostProcessor, BeanPostProcessor, ApplicationEventPublisherAware  {
 
 	private static Logger log = LoggerFactory.getLogger(AgoraConfig.class);
-
-	public AgoraConfig() {
-	}
+	
+	@Autowired
+	private  ApplicationEventPublisher applicationEventPublisher;
 
 	@PostConstruct
 	public void init() {
@@ -118,10 +121,19 @@ public class AgoraConfig implements BeanFactoryPostProcessor, BeanPostProcessor 
 	private Object proxyCode(Object proxyObj, Method method, Object[] args, StoaMethodSettings settings) {
 		if (method.isAnnotationPresent(Pare.class)) {
 			log.info("Pare got executed");
+			applicationEventPublisher.publishEvent(new AgoraEvent(this, new GreetingDTO("a")));
+
 		} else if (method.isAnnotationPresent(Dose.class)) {
 			log.info("Dose got executed");
+			applicationEventPublisher.publishEvent(new AgoraEvent(this, new GreetingDTO("a")));
+			
 		}
 		return null;
 	}
+
+	@Override
+    public void setApplicationEventPublisher(ApplicationEventPublisher applicationEventPublisher) {
+        this.applicationEventPublisher = applicationEventPublisher;
+    }
 
 }

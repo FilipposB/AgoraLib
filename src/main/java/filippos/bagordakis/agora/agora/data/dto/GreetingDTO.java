@@ -6,12 +6,13 @@ import com.fasterxml.jackson.annotation.JsonTypeName;
 public class GreetingDTO extends BaseDTO  {
 	
 	private String name;
-	
+
 	public GreetingDTO() {
 		
 	}
 	
-	public GreetingDTO(String name) {
+	public GreetingDTO(String id, String name) {
+		super(id);
 		this.name = name;
 	}
 

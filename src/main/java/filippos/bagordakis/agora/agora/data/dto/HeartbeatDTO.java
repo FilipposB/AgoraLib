@@ -4,9 +4,13 @@ import com.fasterxml.jackson.annotation.JsonTypeName;
 
 @JsonTypeName("heartbeat")
 public class HeartbeatDTO extends BaseDTO {
+
+	public HeartbeatDTO(String id) {
+		super(id);
+	}
 	
 	public HeartbeatDTO() {
-		
+	
 	}
 
 }

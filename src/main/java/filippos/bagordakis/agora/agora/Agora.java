@@ -5,8 +5,8 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.Socket;
-import java.util.Timer;
-import java.util.TimerTask;
+import java.net.UnknownHostException;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 import org.slf4j.Logger;
@@ -15,7 +15,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.jsontype.NamedType;
 
@@ -37,21 +36,25 @@ public class Agora {
 	private int RECONNECT_DELAY;
 
 	private Socket socket = null;
+
 	private PrintWriter out = null;
 	private BufferedReader in = null;
 
-	private final long HEARTBEAT_INTERVAL = 5000; // 5 seconds
-	private final long HEARTBEAT_TIMEOUT = 10000; // 10 seconds
-	private boolean receivedHeartbeatAck = true;
+	private final long HEARTBEAT_INTERVAL = 10000;
+	private final long HEARTBEAT_TIMEOUT = 20000;
+	private long receivedHeartbeatTime = System.currentTimeMillis();
 
-	private boolean running = true;
+	private boolean running;
+	private boolean connected;
 
 	private static final Logger log = LoggerFactory.getLogger(Agora.class);
 
+	private ConcurrentLinkedQueue<Object> que;
+
+	private final ObjectMapper objectMapper = AgoraHelper.getObjectMapper();
+
 	@Value("Athens")
 	private String id;
-
-	private ConcurrentLinkedQueue<Object> que;
 
 	public Agora() {
 		que = new ConcurrentLinkedQueue<>();
@@ -65,94 +68,14 @@ public class Agora {
 	@PostConstruct
 	public void connect() throws InterruptedException {
 
-		ObjectMapper objectMapper = new ObjectMapper();
 		objectMapper.registerSubtypes(new NamedType(GreetingDTO.class, "greeting"),
 				new NamedType(HeartbeatDTO.class, "heartbeat"));
-
-		close();
-
 		running = true;
 
-		while (running) {
-			try {
-				socket = new Socket(SERVER_ADDRESS, SERVER_PORT);
-				out = new PrintWriter(socket.getOutputStream(), true);
-				in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+		establishConnection();
 
-				log.info("Connected to server: [{}]", socket.getRemoteSocketAddress());
-
-				// Thread for reading from server
-				new Thread(() -> {
-					String receivedJson;
-					try {
-						while ((receivedJson = in.readLine()) != null) {
-							BaseDTO dto = objectMapper.readValue(receivedJson, BaseDTO.class);
-							if (dto instanceof HeartbeatDTO) {
-								receivedHeartbeatAck = true;
-							}
-							log.info("Received object [{}] over TCP", receivedJson);
-						}
-					} catch (IOException e) {
-						log.error("Failed to read from server", e);
-						running = false;
-					}
-				}).start();
-
-				// Thread for writing to server
-				new Thread(() -> {
-					while (running) {
-						if (!socket.isConnected() || socket.isClosed()) {
-							running = false;
-							log.error("Socket is not connected or closed. Stopping sending data.");
-							break;
-						}
-						Object object = que.poll();
-						if (object != null) {
-							try {
-								String json = objectMapper.writeValueAsString(object);
-								out.println(json);
-								log.info("Sent object [{}] over TCP", json);
-							} catch (IOException e) {
-								log.error("Failed to serialize and send object", e);
-								running = false;
-							}
-						}
-
-						if (System.currentTimeMillis() % HEARTBEAT_INTERVAL == 0) {
-							try {
-								String json = objectMapper.writeValueAsString(new HeartbeatDTO());
-								out.println(json);
-								receivedHeartbeatAck = false;
-								// Start a timer to check for heartbeat acknowledgment
-								if (!receivedHeartbeatAck) {
-									try {
-										connect();
-									} catch (InterruptedException e) {
-										// TODO Auto-generated catch block
-										e.printStackTrace();
-									}
-								}
-
-							} catch (JsonProcessingException e) {
-								e.printStackTrace();
-							}
-
-						}
-					}
-				}).start();
-
-				break;
-
-			} catch (IOException e) {
-				log.error("Failed to connect to server at [{}] and port [{}]", SERVER_ADDRESS, SERVER_PORT);
-				try {
-					Thread.sleep(RECONNECT_DELAY);
-				} catch (InterruptedException ie) {
-					Thread.currentThread().interrupt();
-				}
-			}
-
-		}
+		new Thread(new Listener()).start();
+		new Thread(new Writer()).start();
 
 	}
 
@@ -161,10 +84,16 @@ public class Agora {
 
 		running = false;
 
+		closeConnections();
+	}
+
+	private void closeConnections() {
+		connected = false;
 		while (true) {
 			try {
 				if (socket != null) {
 					socket.close();
+					log.info("Closing connection to Agora");
 					socket = null;
 				}
 				if (out != null) {
@@ -179,6 +108,154 @@ public class Agora {
 				break;
 			} catch (IOException e) {
 				e.printStackTrace();
+			}
+		}
+	}
+
+	private synchronized void establishConnection() {
+		closeConnections();
+		acquireSocket();
+		connectPrintWriter();
+		getBufferedReader();
+		receivedHeartbeatTime = System.currentTimeMillis();
+		connected = true;
+	}
+
+	private void connectPrintWriter() {
+		while (running) {
+			try {
+				out = new PrintWriter(socket.getOutputStream(), true);
+				break;
+			} catch (IOException e) {
+				log.error("{}", e.getMessage());
+			}
+		}
+	}
+
+	private void getBufferedReader() {
+		while (running) {
+			try {
+				in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+				break;
+			} catch (IOException e) {
+				log.error("{}", e.getMessage());
+			}
+		}
+	}
+
+	private void acquireSocket() {
+		while (running) {
+			try {
+
+				socket = new Socket(SERVER_ADDRESS, SERVER_PORT);
+				if (socket.isConnected()) {
+					log.info("Connected to Agora at  [{}]:[{}]", SERVER_ADDRESS, SERVER_PORT);
+					break;
+				}
+			} catch (UnknownHostException e) {
+				log.error("Unkown host  {}", e.getMessage());
+				throw new RuntimeException(e);
+			} catch (IOException e) {
+				log.error("Failed to connect to Agora at [{}]:[{}] with message : {}", SERVER_ADDRESS, SERVER_PORT,
+						e.getMessage());
+				try {
+					Thread.sleep(RECONNECT_DELAY);
+				} catch (InterruptedException e2) {
+					throw new RuntimeException(e2);
+				}
+			}
+		}
+	}
+
+	private class Listener implements Runnable {
+
+		@Override
+		public void run() {
+
+			log.info("Agora Listener started");
+
+			while (running) {
+
+				while (connected) {
+					String receivedJson;
+					try {
+						while ((receivedJson = in.readLine()) != null) {
+							BaseDTO dto = objectMapper.readValue(receivedJson, BaseDTO.class);
+							if (dto instanceof HeartbeatDTO) {
+								log.info("Heartbeat received");
+								receivedHeartbeatTime = System.currentTimeMillis();
+							} else {
+								log.info("Received object [{}] over TCP", receivedJson);
+							}
+						}
+					} catch (IOException e) {
+					}
+				}
+
+				try {
+					Thread.sleep(1000);
+				} catch (InterruptedException e) {
+					e.printStackTrace();
+				}
+			}
+
+		}
+
+	}
+
+	private class Writer implements Runnable {
+
+		@Override
+		public void run() {
+
+			log.info("Agora Writer started");
+
+			while (running) {
+				boolean shouldGreet = true;
+				while (connected) {
+
+					if (!socket.isConnected() || socket.isClosed()) {
+						running = false;
+						log.error("Socket is not connected or closed. Stopping sending data.");
+						break;
+					}
+
+					try {
+						if (shouldGreet) {
+							out.println(
+									objectMapper.writeValueAsString(new GreetingDTO(UUID.randomUUID().toString(), id)));
+							shouldGreet = false;
+						} else {
+							Object object = que.poll();
+							if (object != null) {
+								String json = objectMapper.writeValueAsString(object);
+								out.println(json);
+								log.info("Sent object [{}] over TCP", json);
+							}
+						}
+
+						if (System.currentTimeMillis() % HEARTBEAT_INTERVAL == 0) {
+							String id = UUID.randomUUID().toString();
+							String json = objectMapper.writeValueAsString(new HeartbeatDTO(id));
+							out.println(json);
+							log.info("Heartbeat [{}] sent to [{}]", id, socket.getRemoteSocketAddress().toString());
+						}
+
+					} catch (IOException e) {
+						log.error("Failed to serialize and send object", e);
+					}
+
+					if (System.currentTimeMillis() - receivedHeartbeatTime > HEARTBEAT_TIMEOUT) {
+						establishConnection();
+					}
+				}
+
+				try {
+					Thread.sleep(1000);
+				} catch (InterruptedException e) {
+					e.printStackTrace();
+				}
+
 			}
 		}
 	}

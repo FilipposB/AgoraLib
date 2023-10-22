@@ -10,7 +10,7 @@
 		<relativePath /> <!-- lookup parent from repository -->
 	</parent>
 	<groupId>filippos.bagordakis</groupId>
-	<artifactId>agoraLib</artifactId>
+	<artifactId>agora-lib</artifactId>
 	<version>0.0.1</version>
 	<name>agora</name>
 	<description>Demo project for Spring Boot</description>

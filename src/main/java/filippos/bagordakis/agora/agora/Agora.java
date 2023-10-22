@@ -49,11 +49,11 @@ public class Agora {
 
 	private static final Logger log = LoggerFactory.getLogger(Agora.class);
 
-	private static ConcurrentLinkedQueue<RequestDTO> que;
+	private static ConcurrentLinkedQueue<BaseDTO> que;
 
 	private static boolean shouldGreet = true;
 
-	private static final AgoraRequestCache cache = new AgoraRequestCache(Duration.ofMillis(1000), x -> {
+	private static final AgoraRequestCache cache = new AgoraRequestCache(Duration.ofMillis(2000), x -> {
 		if (x instanceof RequestDTO dto) {
 			log.info("Didnt hear back will reque !");
 			que.add(dto);
@@ -97,21 +97,19 @@ public class Agora {
 		closeConnections();
 	}
 
-	private void closeConnections() {
+	private synchronized void closeConnections() {
 		connected = false;
 		while (true) {
 			try {
-				if (socket != null) {
+				if (socket != null && socket.isConnected()) {
 					socket.close();
 					log.info("Closing connection to Agora");
 					socket = null;
 				}
 				if (out != null) {
-					out.close();
 					out = null;
 				}
 				if (in != null) {
-					in.close();
 					in = null;
 				}
 
@@ -123,35 +121,33 @@ public class Agora {
 	}
 
 	private synchronized void establishConnection() {
-		closeConnections();
-		acquireSocket();
-		connectPrintWriter();
-		getBufferedReader();
-		receivedHeartbeatTime = System.currentTimeMillis();
-		shouldGreet = true;
-		connected = true;
-	}
-
-	private void connectPrintWriter() {
 		while (running) {
 			try {
-				out = new ObjectOutputStream(socket.getOutputStream());
+				closeConnections();
+				acquireSocket();
+				connectPrintWriter();
+				getBufferedReader();
+				receivedHeartbeatTime = System.currentTimeMillis();
+				shouldGreet = true;
+				connected = true;
 				break;
 			} catch (IOException e) {
-				log.error("{}", e.getMessage());
+				log.error("Failed to connect due to {}", e.getMessage());
+				e.printStackTrace();
 			}
 		}
 	}
 
-	private void getBufferedReader() {
-		while (running) {
-			try {
-				in = new ObjectInputStream(socket.getInputStream());
-				break;
-			} catch (IOException e) {
-				log.error("{}", e.getMessage());
-			}
-		}
+	private void connectPrintWriter() throws IOException {
+
+		out = new ObjectOutputStream(socket.getOutputStream());
+
+	}
+
+	private void getBufferedReader() throws IOException {
+
+		in = new ObjectInputStream(socket.getInputStream());
+
 	}
 
 	private void acquireSocket() {
@@ -188,11 +184,12 @@ public class Agora {
 			while (running) {
 
 				while (connected) {
-					
-					
+
 					BaseDTO dto;
 					try {
 						while ((dto = (BaseDTO) in.readObject()) != null) {
+
+							boolean sendAcknoledgment = false;
 
 							if (dto instanceof HeartbeatDTO) {
 								log.debug("Heartbeat received");
@@ -206,13 +203,21 @@ public class Agora {
 
 							} else {
 								log.info("Received object [{}] over TCP", dto.toString());
+								sendAcknoledgment = true;
+							}
+
+							if (sendAcknoledgment) {
+								que.add(new AckoledgmentDTO(dto.getId()));
 							}
 						}
 					} catch (IOException e) {
 						log.error("{}", e.getMessage());
+						e.printStackTrace();
 						establishConnection();
 					} catch (ClassNotFoundException e) {
 						log.error("{}", e.getMessage());
+						e.printStackTrace();
+
 					}
 				}
 
@@ -253,16 +258,15 @@ public class Agora {
 							cache.put(dto);
 							shouldGreet = false;
 						} else {
-							RequestDTO requestDTO = que.poll();
+							BaseDTO requestDTO = que.poll();
 							if (requestDTO != null) {
-
 								out.writeObject(requestDTO);
 								cache.put(requestDTO);
 
 								log.info("Sent object [{}] over TCP", requestDTO.toString());
 							}
 						}
-						
+
 						if (System.currentTimeMillis() - lastHeartbeatSent >= HEARTBEAT_INTERVAL) {
 							HeartbeatDTO heartbeatDTO = HeartbeatDTO.newInstance();
 							out.writeObject(heartbeatDTO);
@@ -279,7 +283,6 @@ public class Agora {
 						establishConnection();
 					}
 				}
-
 
 				try {
 					Thread.sleep(1000);

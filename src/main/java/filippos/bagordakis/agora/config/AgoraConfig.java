@@ -122,11 +122,14 @@ public class AgoraConfig implements BeanFactoryPostProcessor, BeanPostProcessor,
 	private Object proxyCode(Object proxyObj, Method method, Object[] args, StoaMethodSettings settings) throws JsonProcessingException {
 		if (method.isAnnotationPresent(Pare.class)) {
 			log.info("Pare got executed");
-			applicationEventPublisher.publishEvent(new AgoraEvent(this, "Pare"));
+			for (int i = 0 ; i < 100000; i++) {
+				applicationEventPublisher.publishEvent(new AgoraEvent(this, "Pare"));
+			}
 		} else if (method.isAnnotationPresent(Dose.class)) {
 			log.info("Dose got executed");
-			applicationEventPublisher.publishEvent(new AgoraEvent(this, "Dose"));
-		}
+			for (int i = 0 ; i < 100; i++) {
+				applicationEventPublisher.publishEvent(new AgoraEvent(this, "Dose"));
+			}		}
 		return null;
 	}
 

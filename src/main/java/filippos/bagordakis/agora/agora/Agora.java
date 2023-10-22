@@ -1,11 +1,11 @@
 package filippos.bagordakis.agora.agora;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.PrintWriter;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.net.Socket;
 import java.net.UnknownHostException;
+import java.time.Duration;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
@@ -15,13 +15,13 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.jsontype.NamedType;
-
-import filippos.bagordakis.agora.agora.data.dto.AgoraEvent;
-import filippos.bagordakis.agora.agora.data.dto.BaseDTO;
-import filippos.bagordakis.agora.agora.data.dto.GreetingDTO;
-import filippos.bagordakis.agora.agora.data.dto.HeartbeatDTO;
+import filippos.bagordakis.agora.agora.data.event.AgoraEvent;
+import filippos.bagordakis.agora.common.dto.AckoledgmentDTO;
+import filippos.bagordakis.agora.common.dto.BaseDTO;
+import filippos.bagordakis.agora.common.dto.GreetingDTO;
+import filippos.bagordakis.agora.common.dto.HeartbeatDTO;
+import filippos.bagordakis.agora.common.dto.RequestDTO;
+import filippos.bagordakis.agora.common.request.cache.AgoraRequestCache;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 
@@ -37,11 +37,11 @@ public class Agora {
 
 	private Socket socket = null;
 
-	private PrintWriter out = null;
-	private BufferedReader in = null;
+	private ObjectOutputStream out = null;
+	private ObjectInputStream in = null;
 
-	private final long HEARTBEAT_INTERVAL = 10000;
-	private final long HEARTBEAT_TIMEOUT = 20000;
+	private final long HEARTBEAT_INTERVAL = 1000;
+	private final long HEARTBEAT_TIMEOUT = 10 * HEARTBEAT_INTERVAL;
 	private long receivedHeartbeatTime = System.currentTimeMillis();
 
 	private boolean running;
@@ -49,9 +49,19 @@ public class Agora {
 
 	private static final Logger log = LoggerFactory.getLogger(Agora.class);
 
-	private ConcurrentLinkedQueue<Object> que;
+	private static ConcurrentLinkedQueue<RequestDTO> que;
 
-	private final ObjectMapper objectMapper = AgoraHelper.getObjectMapper();
+	private static boolean shouldGreet = true;
+
+	private static final AgoraRequestCache cache = new AgoraRequestCache(Duration.ofMillis(1000), x -> {
+		if (x instanceof RequestDTO dto) {
+			log.info("Didnt hear back will reque !");
+			que.add(dto);
+		} else if (x instanceof GreetingDTO dto) {
+			log.info("Didnt hear back will greet again !");
+			shouldGreet = true;
+		}
+	});
 
 	@Value("Athens")
 	private String id;
@@ -67,15 +77,15 @@ public class Agora {
 
 	@PostConstruct
 	public void connect() throws InterruptedException {
-
-		objectMapper.registerSubtypes(new NamedType(GreetingDTO.class, "greeting"),
-				new NamedType(HeartbeatDTO.class, "heartbeat"));
 		running = true;
 
-		establishConnection();
+		log.atInfo();
 
-		new Thread(new Listener()).start();
-		new Thread(new Writer()).start();
+		new Thread(() -> {
+			establishConnection();
+			new Thread(new Listener()).start();
+			new Thread(new Writer()).start();
+		}).start();
 
 	}
 
@@ -118,13 +128,14 @@ public class Agora {
 		connectPrintWriter();
 		getBufferedReader();
 		receivedHeartbeatTime = System.currentTimeMillis();
+		shouldGreet = true;
 		connected = true;
 	}
 
 	private void connectPrintWriter() {
 		while (running) {
 			try {
-				out = new PrintWriter(socket.getOutputStream(), true);
+				out = new ObjectOutputStream(socket.getOutputStream());
 				break;
 			} catch (IOException e) {
 				log.error("{}", e.getMessage());
@@ -135,7 +146,7 @@ public class Agora {
 	private void getBufferedReader() {
 		while (running) {
 			try {
-				in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+				in = new ObjectInputStream(socket.getInputStream());
 				break;
 			} catch (IOException e) {
 				log.error("{}", e.getMessage());
@@ -177,18 +188,31 @@ public class Agora {
 			while (running) {
 
 				while (connected) {
-					String receivedJson;
+					
+					
+					BaseDTO dto;
 					try {
-						while ((receivedJson = in.readLine()) != null) {
-							BaseDTO dto = objectMapper.readValue(receivedJson, BaseDTO.class);
+						while ((dto = (BaseDTO) in.readObject()) != null) {
+
 							if (dto instanceof HeartbeatDTO) {
-								log.info("Heartbeat received");
+								log.debug("Heartbeat received");
 								receivedHeartbeatTime = System.currentTimeMillis();
+							} else if (dto instanceof AckoledgmentDTO ackoledgmentDTO) {
+								BaseDTO baseDTO = cache.remove(ackoledgmentDTO);
+
+								if (baseDTO != null) {
+									log.info("Received acknoledgement for {}", baseDTO.toString());
+								}
+
 							} else {
-								log.info("Received object [{}] over TCP", receivedJson);
+								log.info("Received object [{}] over TCP", dto.toString());
 							}
 						}
 					} catch (IOException e) {
+						log.error("{}", e.getMessage());
+						establishConnection();
+					} catch (ClassNotFoundException e) {
+						log.error("{}", e.getMessage());
 					}
 				}
 
@@ -205,13 +229,14 @@ public class Agora {
 
 	private class Writer implements Runnable {
 
+		private long lastHeartbeatSent = System.currentTimeMillis();
+
 		@Override
 		public void run() {
 
 			log.info("Agora Writer started");
 
 			while (running) {
-				boolean shouldGreet = true;
 				while (connected) {
 
 					if (!socket.isConnected() || socket.isClosed()) {
@@ -221,24 +246,29 @@ public class Agora {
 					}
 
 					try {
+
 						if (shouldGreet) {
-							out.println(
-									objectMapper.writeValueAsString(new GreetingDTO(UUID.randomUUID().toString(), id)));
+							GreetingDTO dto = new GreetingDTO(UUID.randomUUID(), id);
+							out.writeObject(dto);
+							cache.put(dto);
 							shouldGreet = false;
 						} else {
-							Object object = que.poll();
-							if (object != null) {
-								String json = objectMapper.writeValueAsString(object);
-								out.println(json);
-								log.info("Sent object [{}] over TCP", json);
+							RequestDTO requestDTO = que.poll();
+							if (requestDTO != null) {
+
+								out.writeObject(requestDTO);
+								cache.put(requestDTO);
+
+								log.info("Sent object [{}] over TCP", requestDTO.toString());
 							}
 						}
-
-						if (System.currentTimeMillis() % HEARTBEAT_INTERVAL == 0) {
-							String id = UUID.randomUUID().toString();
-							String json = objectMapper.writeValueAsString(new HeartbeatDTO(id));
-							out.println(json);
-							log.info("Heartbeat [{}] sent to [{}]", id, socket.getRemoteSocketAddress().toString());
+						
+						if (System.currentTimeMillis() - lastHeartbeatSent >= HEARTBEAT_INTERVAL) {
+							HeartbeatDTO heartbeatDTO = HeartbeatDTO.newInstance();
+							out.writeObject(heartbeatDTO);
+							lastHeartbeatSent = System.currentTimeMillis();
+							log.debug("Heartbeat [{}] sent to [{}]", heartbeatDTO.getId(),
+									socket.getRemoteSocketAddress().toString());
 						}
 
 					} catch (IOException e) {
@@ -249,6 +279,7 @@ public class Agora {
 						establishConnection();
 					}
 				}
+
 
 				try {
 					Thread.sleep(1000);

@@ -6,7 +6,6 @@ import java.lang.reflect.Proxy;
 import java.lang.reflect.Type;
 import java.util.Optional;
 import java.util.Set;
-import java.util.UUID;
 
 import org.reflections.Reflections;
 import org.slf4j.Logger;
@@ -20,9 +19,10 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.ApplicationEventPublisherAware;
 import org.springframework.context.annotation.Import;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+
 import filippos.bagordakis.agora.agora.Agora;
-import filippos.bagordakis.agora.agora.data.dto.AgoraEvent;
-import filippos.bagordakis.agora.agora.data.dto.GreetingDTO;
+import filippos.bagordakis.agora.agora.data.event.AgoraEvent;
 import filippos.bagordakis.agora.stoa.annotation.Dose;
 import filippos.bagordakis.agora.stoa.annotation.Pare;
 import filippos.bagordakis.agora.stoa.annotation.Stoa;
@@ -119,15 +119,13 @@ public class AgoraConfig implements BeanFactoryPostProcessor, BeanPostProcessor,
 		});
 	}
 
-	private Object proxyCode(Object proxyObj, Method method, Object[] args, StoaMethodSettings settings) {
+	private Object proxyCode(Object proxyObj, Method method, Object[] args, StoaMethodSettings settings) throws JsonProcessingException {
 		if (method.isAnnotationPresent(Pare.class)) {
 			log.info("Pare got executed");
-			applicationEventPublisher.publishEvent(new AgoraEvent(this, new GreetingDTO(UUID.randomUUID().toString(), "a")));
-
+			applicationEventPublisher.publishEvent(new AgoraEvent(this, "Pare"));
 		} else if (method.isAnnotationPresent(Dose.class)) {
 			log.info("Dose got executed");
-			applicationEventPublisher.publishEvent(new AgoraEvent(this, new GreetingDTO(UUID.randomUUID().toString(), "a")));
-			
+			applicationEventPublisher.publishEvent(new AgoraEvent(this, "Dose"));
 		}
 		return null;
 	}

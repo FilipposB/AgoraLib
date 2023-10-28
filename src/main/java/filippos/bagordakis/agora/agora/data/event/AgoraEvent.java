@@ -2,8 +2,6 @@ package filippos.bagordakis.agora.agora.data.event;
 
 import org.springframework.context.ApplicationEvent;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-
 import filippos.bagordakis.agora.common.dto.RequestDTO;
 import filippos.bagordakis.agora.common.helper.AgoraHelper;
 
@@ -12,9 +10,9 @@ public class AgoraEvent extends ApplicationEvent {
 
 	private final RequestDTO requestDTO;
 
-	public AgoraEvent(Object source, Object data) throws JsonProcessingException {
+	public AgoraEvent(Object source, Object data, String keyword) {
 		super(source);
-		this.requestDTO = AgoraHelper.objectToRequestDTO(data);
+		this.requestDTO = AgoraHelper.objectToRequestDTO(data, keyword);
 	}
 
 	public RequestDTO getData() {

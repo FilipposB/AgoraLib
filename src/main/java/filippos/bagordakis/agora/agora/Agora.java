@@ -34,6 +34,7 @@ public class Agora {
 	private int SERVER_PORT;
 	@Value("1000")
 	private int RECONNECT_DELAY;
+	
 
 	private Socket socket = null;
 
@@ -65,8 +66,11 @@ public class Agora {
 
 	@Value("Athens")
 	private String id;
+	
+	private final AgoraDistributionHandler agoraDistributionHandler;
 
-	public Agora() {
+	public Agora(AgoraDistributionHandler agoraDistributionHandler) {
+		this.agoraDistributionHandler = agoraDistributionHandler;
 		que = new ConcurrentLinkedQueue<>();
 	}
 
@@ -190,19 +194,21 @@ public class Agora {
 						while ((dto = (BaseDTO) in.readObject()) != null) {
 
 							boolean sendAcknoledgment = false;
+							
+							receivedHeartbeatTime = System.currentTimeMillis();
 
 							if (dto instanceof HeartbeatDTO) {
 								log.debug("Heartbeat received");
-								receivedHeartbeatTime = System.currentTimeMillis();
 							} else if (dto instanceof AckoledgmentDTO ackoledgmentDTO) {
 								BaseDTO baseDTO = cache.remove(ackoledgmentDTO);
 
 								if (baseDTO != null) {
-									log.info("Received acknoledgement for {}", baseDTO.toString());
+									log.debug("Received acknoledgement for {}", baseDTO.toString());
 								}
 
-							} else {
-								log.info("Received object [{}] over TCP", dto.toString());
+							} else if (dto instanceof RequestDTO requestDTO ) {
+								log.debug("Received object [{}] over TCP", dto.toString());
+								agoraDistributionHandler.feedQue(requestDTO);
 								sendAcknoledgment = true;
 							}
 
@@ -255,15 +261,16 @@ public class Agora {
 						if (shouldGreet) {
 							GreetingDTO dto = new GreetingDTO(UUID.randomUUID(), id);
 							out.writeObject(dto);
+							lastHeartbeatSent = System.currentTimeMillis();
 							cache.put(dto);
 							shouldGreet = false;
 						} else {
 							BaseDTO requestDTO = que.poll();
 							if (requestDTO != null) {
 								out.writeObject(requestDTO);
-								cache.put(requestDTO);
-
-								log.info("Sent object [{}] over TCP", requestDTO.toString());
+								lastHeartbeatSent = System.currentTimeMillis();
+								cache.put(requestDTO);	
+								log.debug("Sent object [{}] over TCP", requestDTO.toString());
 							}
 						}
 

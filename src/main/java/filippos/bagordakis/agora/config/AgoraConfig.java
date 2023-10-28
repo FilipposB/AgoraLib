@@ -19,12 +19,10 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.ApplicationEventPublisherAware;
 import org.springframework.context.annotation.Import;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-
 import filippos.bagordakis.agora.agora.Agora;
+import filippos.bagordakis.agora.agora.AgoraDistributionHandler;
 import filippos.bagordakis.agora.agora.data.event.AgoraEvent;
 import filippos.bagordakis.agora.stoa.annotation.Dose;
-import filippos.bagordakis.agora.stoa.annotation.Pare;
 import filippos.bagordakis.agora.stoa.annotation.Stoa;
 import filippos.bagordakis.agora.stoa.enums.ResponseTypesEnum;
 import filippos.bagordakis.agora.stoa.settings.StoaMethodSettings;
@@ -32,13 +30,13 @@ import filippos.bagordakis.agora.stoa.settings.StoaMethodSettings.Builder;
 import filippos.bagordakis.agora.stoa.settings.StoaSettings;
 import jakarta.annotation.PostConstruct;
 
-@Import({ Agora.class})
-public class AgoraConfig implements BeanFactoryPostProcessor, BeanPostProcessor, ApplicationEventPublisherAware  {
+@Import({ Agora.class, AgoraDistributionHandler.class })
+public class AgoraConfig implements BeanFactoryPostProcessor, BeanPostProcessor, ApplicationEventPublisherAware {
 
 	private static Logger log = LoggerFactory.getLogger(AgoraConfig.class);
-	
+
 	@Autowired
-	private  ApplicationEventPublisher applicationEventPublisher;
+	private ApplicationEventPublisher applicationEventPublisher;
 
 	@PostConstruct
 	public void init() {
@@ -66,33 +64,13 @@ public class AgoraConfig implements BeanFactoryPostProcessor, BeanPostProcessor,
 	private StoaSettings extractSettings(Class<?> iface, Stoa stoaAnnotation) {
 		StoaSettings requestClientSettings = new StoaSettings();
 		for (Method method : iface.getMethods()) {
-			requestClientSettings = extractDataFromMethod(requestClientSettings, method);
+			if (method.isAnnotationPresent(Dose.class))
+				requestClientSettings = extractDataFromMethod(requestClientSettings, method);
 		}
 		return requestClientSettings;
 	}
 
 	private StoaSettings extractDataFromMethod(StoaSettings stoaSettings, Method method) {
-//		List<Annotation> stoaAnnotations = Arrays.stream(method.getAnnotations())
-//				.filter(x -> x.annotationType().isAnnotationPresent(StoaAnnotation.class)).toList();
-//
-//		if (stoaAnnotations.isEmpty()) {
-//			throw new RuntimeException(
-//					"No annotated methods found on interface " + method.getDeclaringClass().getName());
-//		} else if (stoaAnnotations.size() > 1) {
-//			throw new RuntimeException("Multiple StoaAnnotation annotations found on method " + method.getName());
-//		}
-//
-//		Annotation stoaAnnotation = stoaAnnotations.get(0);
-//
-//		String value;
-//		try {
-//			Method valueMethod = stoaAnnotation.getClass().getMethod("value");
-//			value = (String) valueMethod.invoke(stoaAnnotation);
-//		} catch (IllegalAccessException | IllegalArgumentException | InvocationTargetException | NoSuchMethodException
-//				| SecurityException e) {
-//			throw new RuntimeException("value method wasn't found for annotation " + stoaAnnotation.getClass());
-//		}
-
 		ResponseTypesEnum type = ResponseTypesEnum.BODY;
 		Class<?> returnType = method.getReturnType();
 		Type responseType = method.getGenericReturnType();
@@ -119,23 +97,15 @@ public class AgoraConfig implements BeanFactoryPostProcessor, BeanPostProcessor,
 		});
 	}
 
-	private Object proxyCode(Object proxyObj, Method method, Object[] args, StoaMethodSettings settings) throws JsonProcessingException {
-		if (method.isAnnotationPresent(Pare.class)) {
-			log.info("Pare got executed");
-			for (int i = 0 ; i < 100000; i++) {
-				applicationEventPublisher.publishEvent(new AgoraEvent(this, "Pare"));
-			}
-		} else if (method.isAnnotationPresent(Dose.class)) {
-			log.info("Dose got executed");
-			for (int i = 0 ; i < 100; i++) {
-				applicationEventPublisher.publishEvent(new AgoraEvent(this, "Dose"));
-			}		}
+	private Object proxyCode(Object proxyObj, Method method, Object[] args, StoaMethodSettings settings) {
+		log.info("Dose got executed");
+		applicationEventPublisher.publishEvent(new AgoraEvent(this, "Dose", "/egg"));		
 		return null;
 	}
 
 	@Override
-    public void setApplicationEventPublisher(ApplicationEventPublisher applicationEventPublisher) {
-        this.applicationEventPublisher = applicationEventPublisher;
-    }
+	public void setApplicationEventPublisher(ApplicationEventPublisher applicationEventPublisher) {
+		this.applicationEventPublisher = applicationEventPublisher;
+	}
 
 }

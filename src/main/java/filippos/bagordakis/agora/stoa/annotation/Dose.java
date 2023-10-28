@@ -7,7 +7,7 @@ import java.lang.annotation.Target;
 
 @Target(ElementType.METHOD)
 @Retention(RetentionPolicy.RUNTIME)
-@StoaAnnotation
 public @interface Dose {
-	public String value() default "";
+	public String value();
+	public String[] targets() default {};
 }

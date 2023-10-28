@@ -82,8 +82,11 @@ public class AgoraConfig implements BeanFactoryPostProcessor, BeanPostProcessor,
 			}
 			responseType = ((ParameterizedType) responseType).getActualTypeArguments()[0];
 		}
+		
+		Dose doseAnnotation = method.getAnnotation(Dose.class);
+		
 		Class<?> responseClass = (Class<?>) responseType;
-		Builder builder = new StoaMethodSettings.Builder(responseClass, type);
+		Builder builder = new StoaMethodSettings.Builder(responseClass, type, doseAnnotation.value(), doseAnnotation.targets());
 
 		stoaSettings.addMethodSettings(method, builder.build());
 		return stoaSettings;
@@ -99,7 +102,8 @@ public class AgoraConfig implements BeanFactoryPostProcessor, BeanPostProcessor,
 
 	private Object proxyCode(Object proxyObj, Method method, Object[] args, StoaMethodSettings settings) {
 		log.info("Dose got executed");
-		applicationEventPublisher.publishEvent(new AgoraEvent(this, "Dose", "/egg"));		
+		Object toSend = args.length > 0 ? args[0] : null;
+		applicationEventPublisher.publishEvent(new AgoraEvent(this, toSend, settings.getValue(), settings.getTargets()));		
 		return null;
 	}
 

@@ -16,7 +16,7 @@ import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
 import filippos.bagordakis.agora.agora.data.event.AgoraEvent;
-import filippos.bagordakis.agora.common.dto.AckoledgmentDTO;
+import filippos.bagordakis.agora.common.dto.AcknowledgmentDTO;
 import filippos.bagordakis.agora.common.dto.BaseDTO;
 import filippos.bagordakis.agora.common.dto.GreetingDTO;
 import filippos.bagordakis.agora.common.dto.HeartbeatDTO;
@@ -199,7 +199,7 @@ public class Agora {
 
 							if (dto instanceof HeartbeatDTO) {
 								log.debug("Heartbeat received");
-							} else if (dto instanceof AckoledgmentDTO ackoledgmentDTO) {
+							} else if (dto instanceof AcknowledgmentDTO ackoledgmentDTO) {
 								BaseDTO baseDTO = cache.remove(ackoledgmentDTO);
 
 								if (baseDTO != null) {
@@ -213,7 +213,7 @@ public class Agora {
 							}
 
 							if (sendAcknoledgment) {
-								que.add(new AckoledgmentDTO(dto.getId()));
+								que.add(new AcknowledgmentDTO(dto.getId()));
 							}
 						}
 					} catch (IOException e) {

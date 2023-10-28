@@ -1,5 +1,7 @@
 package filippos.bagordakis.agora.agora.data.event;
 
+import java.util.List;
+
 import org.springframework.context.ApplicationEvent;
 
 import filippos.bagordakis.agora.common.dto.RequestDTO;
@@ -10,9 +12,9 @@ public class AgoraEvent extends ApplicationEvent {
 
 	private final RequestDTO requestDTO;
 
-	public AgoraEvent(Object source, Object data, String keyword) {
+	public AgoraEvent(Object source, Object data, String keyword, List<String> targets) {
 		super(source);
-		this.requestDTO = AgoraHelper.objectToRequestDTO(data, keyword);
+		this.requestDTO = AgoraHelper.objectToRequestDTO(data, keyword, targets);
 	}
 
 	public RequestDTO getData() {
